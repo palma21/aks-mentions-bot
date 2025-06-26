@@ -101,7 +101,7 @@ azd auth login
 ### Initialize and Provision Infrastructure
 ```bash
 # Navigate to project directory
-cd "/mnt/c/Dev/AKS Mentions Bot"
+cd aks-mentions-bot
 
 # Initialize azd (if not already done)
 azd init

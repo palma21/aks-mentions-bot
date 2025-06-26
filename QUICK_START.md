@@ -9,7 +9,7 @@
 az login && azd auth login
 
 # 2. Deploy everything
-cd "/mnt/c/Dev/AKS Mentions Bot"
+cd aks-mentions-bot
 azd up
 
 # 3. Configure secrets - Choose ONE approach:
