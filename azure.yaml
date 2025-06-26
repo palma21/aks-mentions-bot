@@ -1,0 +1,38 @@
+name: aks-mentions-bot
+metadata:
+  template: aks-mentions-bot@0.0.1-beta
+
+services:
+  bot:
+    project: .
+    language: go
+    host: aks
+    k8s:
+      namespace: aks-mentions-bot
+      deploymentPath: k8s
+
+hooks:
+  preprovision:
+    posix:
+      shell: sh
+      run: |
+        echo "Preparing to provision Azure resources..."
+        # Generate SSH key pair if not exists
+        if [ ! -f ~/.ssh/id_rsa.pub ]; then
+          echo "Generating SSH key pair..."
+          ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -N ""
+        fi
+        # Set SSH public key for AKS
+        azd env set AKS_SSH_PUBLIC_KEY "$(cat ~/.ssh/id_rsa.pub)"
+      continueOnError: false
+  postprovision:
+    posix:
+      shell: sh
+      run: |
+        echo "Azure resources provisioned successfully"
+        echo "Getting AKS credentials..."
+        az aks get-credentials --resource-group $AZURE_RESOURCE_GROUP --name $(azd env get-value AKS_CLUSTER_NAME) --overwrite-existing
+        echo "Setting up workload identity..."
+        ./scripts/setup-workload-identity.sh
+        echo "AKS cluster ready for deployment"
+      continueOnError: false

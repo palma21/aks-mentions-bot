@@ -1,0 +1,62 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+main
+bot
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Test outputs and reports
+test_output/
+**/test_reports/
+*.json
+!go.sum
+!*.example.json
+!infra/*.json
+!azure.yaml
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Azure specific
+.azure/
+
+# Kubernetes secrets with real values
+k8s/my-secrets.yaml
+k8s/*secrets*.yaml
+!k8s/secrets.yaml
+!k8s/secrets.yaml

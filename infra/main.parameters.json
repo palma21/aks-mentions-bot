@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "${AZURE_LOCATION=eastus2}"
+    },
+    "resourceToken": {
+      "value": "${AZURE_RESOURCE_TOKEN}"
+    },
+    "adminUsername": {
+      "value": "${AKS_ADMIN_USERNAME=azureuser}"
+    },
+    "sshRSAPublicKey": {
+      "value": "${AKS_SSH_PUBLIC_KEY}"
+    }
+  }
+}
