@@ -1,7 +1,6 @@
 # AKS Mentions Bot
 
-A comprehensive monitoring bot that tracks m## 🔧 Configuration Files
-
+A comprehensive monitoring bot that tracks mentions of Azure Kubernetes Service (AKS) across various platforms including social media, forums, and blogs.
 This project uses template files that you customize for your deployment:
 
 ### Configuration Process
@@ -23,7 +22,6 @@ This project uses template files that you customize for your deployment:
 
 > **🔒 Security**: Template files (`.template.*`) contain placeholders and are safe for git. Local files (`.local.*`) contain your real values and are gitignored.
 
-> **💡 Why setup.sh?**: AZD doesn't modify template files - it needs working copies with your real values. The setup script creates these working copies so AZD can deploy with your configuration.ubernetes Service (AKS) and related technologies across various platforms including social media, forums, and blogs.
 
 ## 🚀 Quick Start
 
@@ -215,120 +213,7 @@ kubectl get pods -n aks-mentions-bot
 - **Context Filtering**: Filters out weapon-related AKS mentions
 - **Storage**: All data saved to Azure Blob Storage
 
-## 🚀 Advanced Deployment
 
-### Prerequisites
-
-1. **Azure CLI** - [Install here](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-2. **Azure Developer CLI (azd)** - [Install here](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
-3. **kubectl** - [Install here](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-4. **Docker** - [Install here](https://docs.docker.com/get-docker/)
-
-### Step-by-Step Deployment
-
-1. **Deploy Infrastructure**
-   ```bash
-   azd up
-   ```
-   This creates:
-   - Azure Kubernetes Service (AKS) cluster
-   - Azure Container Registry
-   - Azure Key Vault
-   - Azure Storage Account
-   - Azure Application Insights
-
-2. **Configure Secrets**
-   ```bash
-   # Add secrets to Azure Key Vault
-   az keyvault secret set --vault-name <your-keyvault> --name teams-webhook-url --value "<your-webhook>"
-   az keyvault secret set --vault-name <your-keyvault> --name reddit-client-id --value "<your-id>"
-   az keyvault secret set --vault-name <your-keyvault> --name reddit-client-secret --value "<your-secret>"
-   az keyvault secret set --vault-name <your-keyvault> --name twitter-bearer-token --value "<your-token>"
-   az keyvault secret set --vault-name <your-keyvault> --name youtube-api-key --value "<your-key>"
-   ```
-
-3. **Verify Deployment**
-   ```bash
-   kubectl get pods -n aks-mentions-bot
-   kubectl logs -l app=aks-mentions-bot -n aks-mentions-bot
-   ```
-
-## 🏗️ Project Structure
-
-```text
-├── cmd/
-│   ├── bot/                 # Main application entry point
-│   ├── test-apis/          # API connectivity testing
-│   ├── test-integration/   # Integration testing
-│   └── test-report/        # Report generation testing
-├── internal/
-│   ├── config/             # Configuration management
-│   ├── models/             # Data models
-│   ├── monitoring/         # Core monitoring logic
-│   ├── notifications/      # Notification services (Teams, Email)
-│   ├── scheduler/          # Task scheduling
-│   ├── sources/            # Data source implementations
-│   └── storage/            # Azure Blob Storage integration
-├── k8s/                    # Kubernetes manifests
-├── infra/                  # Azure Bicep templates
-└── scripts/                # Deployment and utility scripts
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how to get started:
-
-### Development Setup
-
-1. **Prerequisites**
-   - Go 1.21 or later
-   - Docker (for containerization)
-   - Azure CLI (for deployment)
-   - Git
-
-2. **Clone and Setup**
-   ```bash
-   git clone <repository-url>
-   cd aks-mentions-bot
-   cp .env.example .env
-   go mod tidy
-   ```
-
-3. **Run Tests**
-   ```bash
-   go test ./...
-   ```
-
-### Code Style
-
-- Follow standard Go conventions
-- Use `gofmt` for formatting
-- Run `go vet` to check for common issues
-- Add comments for exported functions and types
-- Write tests for new functionality
-
-### Adding New Sources
-
-To add a new data source:
-
-1. Implement the `Source` interface in `internal/sources/`:
-   ```go
-   type Source interface {
-       FetchMentions(ctx context.Context, keywords []string, since time.Duration) ([]models.Mention, error)
-       IsEnabled() bool
-   }
-   ```
-
-2. Add initialization in `internal/monitoring/service.go`
-3. Add API key configuration if needed
-4. Update documentation
-
-### Security Guidelines
-
-- Never commit API keys or secrets
-- Use Azure Key Vault for sensitive data
-- Validate all external inputs
-- Follow secure coding practices
 
 ## 📄 License
 
