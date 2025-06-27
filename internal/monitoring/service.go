@@ -28,12 +28,12 @@ type Service struct {
 
 // Metrics holds monitoring metrics
 type Metrics struct {
-	TotalMentions     int       `json:"total_mentions"`
-	LastRun           time.Time `json:"last_run"`
-	LastRunDuration   string    `json:"last_run_duration"`
-	SourceMetrics     map[string]int `json:"source_metrics"`
+	TotalMentions      int            `json:"total_mentions"`
+	LastRun            time.Time      `json:"last_run"`
+	LastRunDuration    string         `json:"last_run_duration"`
+	SourceMetrics      map[string]int `json:"source_metrics"`
 	SentimentBreakdown map[string]int `json:"sentiment_breakdown"`
-	ErrorCount        int       `json:"error_count"`
+	ErrorCount         int            `json:"error_count"`
 }
 
 // NewService creates a new monitoring service
@@ -43,7 +43,7 @@ func NewService(cfg *config.Config, storage storage.StorageInterface, notificati
 		storage:             storage,
 		notificationService: notificationService,
 		metrics: &Metrics{
-			SourceMetrics:     make(map[string]int),
+			SourceMetrics:      make(map[string]int),
 			SentimentBreakdown: make(map[string]int),
 		},
 	}
@@ -79,21 +79,45 @@ func (s *Service) RunMonitoring() error {
 	mentionsChan := make(chan []models.Mention, len(s.sources))
 	errorsChan := make(chan error, len(s.sources))
 
+	// Determine the time window to search
+	// For consistency, always search the configured period regardless of last run time
+	var searchWindow time.Duration
+	switch s.config.ReportSchedule {
+	case "daily":
+		searchWindow = 24 * time.Hour
+		logrus.Info("Searching for mentions in the last 24 hours (daily schedule)")
+	case "weekly":
+		searchWindow = 7 * 24 * time.Hour
+		logrus.Info("Searching for mentions in the last 7 days (weekly schedule)")
+	default:
+		// Fallback - use time since last run, but minimum 24 hours
+		timeSinceLastRun := time.Since(s.getLastRunTime())
+		if timeSinceLastRun < 24*time.Hour {
+			searchWindow = 24 * time.Hour
+			logrus.Infof("Using minimum 24-hour search window (time since last run: %v)", timeSinceLastRun)
+		} else {
+			searchWindow = timeSinceLastRun
+			logrus.Infof("Using time since last run as search window: %v", timeSinceLastRun)
+		}
+	}
+
+	logrus.Infof("Searching %d sources for mentions in the last %v", len(s.sources), searchWindow)
+
 	// Fetch mentions from all sources concurrently
 	for _, source := range s.sources {
 		wg.Add(1)
 		go func(src sources.Source) {
 			defer wg.Done()
-			
-			logrus.Infof("Fetching mentions from %s", src.GetName())
-			mentions, err := src.FetchMentions(ctx, s.config.Keywords, time.Since(s.getLastRunTime()))
-			
+
+			logrus.Infof("Fetching mentions from %s (window: %v)", src.GetName(), searchWindow)
+			mentions, err := src.FetchMentions(ctx, s.config.Keywords, searchWindow)
+
 			if err != nil {
 				logrus.Errorf("Error fetching from %s: %v", src.GetName(), err)
 				errorsChan <- err
 				return
 			}
-			
+
 			logrus.Infof("Found %d mentions from %s", len(mentions), src.GetName())
 			mentionsChan <- mentions
 		}(source)
@@ -151,49 +175,78 @@ func (s *Service) RunMonitoring() error {
 
 func (s *Service) filterByContext(mentions []models.Mention) []models.Mention {
 	var filtered []models.Mention
-	
+
 	for _, mention := range mentions {
 		if s.isRelevantMention(mention) {
 			filtered = append(filtered, mention)
 		}
 	}
-	
+
 	return filtered
 }
 
 func (s *Service) isRelevantMention(mention models.Mention) bool {
 	content := strings.ToLower(mention.Content + " " + mention.Title)
-	
-	// Keywords that indicate it's about Azure Kubernetes Service
-	positiveIndicators := []string{
-		"azure", "microsoft", "kubernetes", "container", "cluster", "deployment",
-		"helm", "kubectl", "namespace", "pod", "service", "ingress", "nodepool",
-		"fleet manager", "kaito", "kubefleet",
+
+	// Primary AKS/Azure indicators - must have at least one
+	azureIndicators := []string{
+		"aks", "azure kubernetes service", "azure kubernetes", "azure container service",
+		"microsoft azure", "azurecr.io", "azure cli", "az aks", "azure devops",
+		"azure container registry", "azure container apps", "kaito", "kubefleet",
+		"azure kubernetes fleet", "azure kubernetes fleet manager",
 	}
-	
-	// Keywords that indicate it's NOT about AKS (like weapons)
+
+	// Secondary indicators that can boost relevance when combined with Azure
+	kubernetesIndicators := []string{
+		"kubernetes", "k8s", "container", "cluster", "deployment", "helm",
+		"kubectl", "namespace", "pod", "service", "ingress", "nodepool",
+	}
+
+	// Keywords that indicate it's NOT about AKS
 	negativeIndicators := []string{
 		"rifle", "gun", "weapon", "firearm", "assault", "military", "bullet",
 		"ammunition", "shoot", "trigger", "barrel", "stock", "caliber",
+		"aws", "amazon", "eks", "gcp", "google", "gke", "openshift",
+		"rancher", "docker desktop", "minikube", "kind", "k3s",
 	}
-	
+
 	// Check for negative indicators first
 	for _, indicator := range negativeIndicators {
 		if strings.Contains(content, indicator) {
 			return false
 		}
 	}
-	
-	// Check for positive indicators
-	positiveScore := 0
-	for _, indicator := range positiveIndicators {
+
+	// Check for primary Azure indicators
+	azureScore := 0
+	for _, indicator := range azureIndicators {
 		if strings.Contains(content, indicator) {
-			positiveScore++
+			azureScore++
 		}
 	}
-	
-	// Require at least one positive indicator for AKS mentions
-	return positiveScore > 0
+
+	// If we have Azure indicators, it's relevant
+	if azureScore > 0 {
+		return true
+	}
+
+	// If no Azure indicators, check if it's from our search terms and has Kubernetes context
+	// This handles cases where the title might be "AKS" but content doesn't mention Azure
+	if mention.Source == "reddit" || mention.Source == "stackoverflow" || mention.Source == "hackernews" {
+		// For these sources, require both our search terms AND Kubernetes context
+		hasSearchTerm := strings.Contains(content, "aks") || strings.Contains(content, "azure kubernetes")
+		hasK8sContext := false
+		for _, indicator := range kubernetesIndicators {
+			if strings.Contains(content, indicator) {
+				hasK8sContext = true
+				break
+			}
+		}
+		return hasSearchTerm && hasK8sContext
+	}
+
+	// For other sources (Medium, YouTube, etc.), be more restrictive
+	return false
 }
 
 func (s *Service) analyzeSentiment(mentions []models.Mention) {
@@ -205,31 +258,31 @@ func (s *Service) analyzeSentiment(mentions []models.Mention) {
 
 func (s *Service) basicSentimentAnalysis(content string) string {
 	content = strings.ToLower(content)
-	
+
 	positiveWords := []string{"good", "great", "excellent", "love", "awesome", "fantastic", "helpful", "works", "solved", "success"}
 	negativeWords := []string{"bad", "terrible", "awful", "hate", "broken", "error", "fail", "problem", "issue", "bug"}
-	
+
 	positiveCount := 0
 	negativeCount := 0
-	
+
 	for _, word := range positiveWords {
 		if strings.Contains(content, word) {
 			positiveCount++
 		}
 	}
-	
+
 	for _, word := range negativeWords {
 		if strings.Contains(content, word) {
 			negativeCount++
 		}
 	}
-	
+
 	if positiveCount > negativeCount {
 		return "positive"
 	} else if negativeCount > positiveCount {
 		return "negative"
 	}
-	
+
 	return "neutral"
 }
 
@@ -237,12 +290,12 @@ func (s *Service) storeMentions(mentions []models.Mention) error {
 	if len(mentions) == 0 {
 		return nil
 	}
-	
+
 	data, err := json.Marshal(mentions)
 	if err != nil {
 		return fmt.Errorf("failed to marshal mentions: %w", err)
 	}
-	
+
 	filename := fmt.Sprintf("mentions-%s.json", time.Now().Format("2006-01-02-15-04-05"))
 	return s.storage.Store(filename, data)
 }
@@ -260,20 +313,20 @@ func (s *Service) generateReport(mentions []models.Mention) *models.Report {
 		Mentions:      mentions,
 		Summary:       make(map[string]interface{}),
 	}
-	
+
 	// Generate summary statistics
 	sourceCount := make(map[string]int)
 	sentimentCount := make(map[string]int)
-	
+
 	for _, mention := range mentions {
 		sourceCount[mention.Source]++
 		sentimentCount[mention.Sentiment]++
 	}
-	
+
 	report.Summary["sources"] = sourceCount
 	report.Summary["sentiment"] = sentimentCount
 	report.Summary["top_sources"] = s.getTopSources(sourceCount)
-	
+
 	return report
 }
 
@@ -282,12 +335,12 @@ func (s *Service) getTopSources(sourceCount map[string]int) []string {
 		source string
 		count  int
 	}
-	
+
 	var scores []sourceScore
 	for source, count := range sourceCount {
 		scores = append(scores, sourceScore{source, count})
 	}
-	
+
 	// Simple sort by count (descending)
 	for i := 0; i < len(scores)-1; i++ {
 		for j := i + 1; j < len(scores); j++ {
@@ -296,7 +349,7 @@ func (s *Service) getTopSources(sourceCount map[string]int) []string {
 			}
 		}
 	}
-	
+
 	var topSources []string
 	for i, score := range scores {
 		if i >= 5 { // Top 5 sources
@@ -304,23 +357,23 @@ func (s *Service) getTopSources(sourceCount map[string]int) []string {
 		}
 		topSources = append(topSources, fmt.Sprintf("%s (%d)", score.source, score.count))
 	}
-	
+
 	return topSources
 }
 
 func (s *Service) updateMetrics(mentions []models.Mention, duration time.Duration, errorCount int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.metrics.TotalMentions = len(mentions)
 	s.metrics.LastRun = time.Now()
 	s.metrics.LastRunDuration = duration.String()
 	s.metrics.ErrorCount = errorCount
-	
+
 	// Reset counters
 	s.metrics.SourceMetrics = make(map[string]int)
 	s.metrics.SentimentBreakdown = make(map[string]int)
-	
+
 	// Count by source and sentiment
 	for _, mention := range mentions {
 		s.metrics.SourceMetrics[mention.Source]++
@@ -331,12 +384,12 @@ func (s *Service) updateMetrics(mentions []models.Mention, duration time.Duratio
 func (s *Service) getLastRunTime() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.metrics.LastRun.IsZero() {
 		// Default to 24 hours ago for first run
 		return time.Now().Add(-24 * time.Hour)
 	}
-	
+
 	return s.metrics.LastRun
 }
 
@@ -344,7 +397,7 @@ func (s *Service) getLastRunTime() time.Time {
 func (s *Service) GetMetrics() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	data, _ := json.MarshalIndent(s.metrics, "", "  ")
 	return string(data)
 }
@@ -357,6 +410,6 @@ func (s *Service) GenerateTestReport(mentions []models.Mention) *models.Report {
 			mentions[i].Sentiment = s.basicSentimentAnalysis(mentions[i].Content)
 		}
 	}
-	
+
 	return s.generateReport(mentions)
 }

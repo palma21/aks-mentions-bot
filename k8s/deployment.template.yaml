@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aks-mentions-bot
+  namespace: aks-mentions-bot
+  labels:
+    app: aks-mentions-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aks-mentions-bot
+  template:
+    metadata:
+      labels:
+        app: aks-mentions-bot
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: aks-mentions-bot-sa
+      containers:
+      - name: aks-mentions-bot
+        image: YOUR_ACR_NAME.azurecr.io/aks-mentions-bot:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AZURE_STORAGE_ACCOUNT_NAME
+          value: "YOUR_STORAGE_ACCOUNT"
+        - name: AZURE_STORAGE_CONTAINER_NAME
+          value: "mentions"
+        - name: AZURE_KEY_VAULT_URL
+          value: "https://YOUR_KEYVAULT.vault.azure.net/"
+        - name: MONITORING_INTERVAL
+          value: "weekly"
+        - name: KEYWORDS
+          value: "AKS,Azure Kubernetes Service"
+        - name: TEAMS_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: TEAMS_WEBHOOK_URL
+        - name: REDDIT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: REDDIT_CLIENT_ID
+        - name: REDDIT_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: REDDIT_CLIENT_SECRET
+        - name: TWITTER_BEARER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: TWITTER_BEARER_TOKEN
+        - name: YOUTUBE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: YOUTUBE_API_KEY
+        - name: NOTIFICATION_EMAIL
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: NOTIFICATION_EMAIL
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: aks-mentions-bot-secrets
+              key: SMTP_PASSWORD
+        - name: SMTP_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: aks-mentions-bot-email-config
+              key: SMTP_HOST
+        - name: SMTP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: aks-mentions-bot-email-config
+              key: SMTP_PORT
+        - name: SMTP_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: aks-mentions-bot-email-config
+              key: SMTP_USERNAME
+        volumeMounts:
+        - name: secrets-store
+          mountPath: /mnt/secrets
+          readOnly: true
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: aks-mentions-bot-secret-provider

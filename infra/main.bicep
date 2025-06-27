@@ -1,19 +1,19 @@
 @description('Primary location for all resources')
 param location string = resourceGroup().location
 
+@description('Environment name for azd')
+param environmentName string = ''
+
 @description('Resource token to make resource names unique')
-param resourceToken string = toLower(uniqueString(subscription().id, resourceGroup().id, location))
+param resourceToken string = toLower(uniqueString(subscription().id, resourceGroup().id, environmentName))
+
+@description('Current user object ID for AKS RBAC role assignment')
+param currentUserObjectId string = ''
 
 @description('Tags to apply to all resources')
 param tags object = {
-  'azd-env-name': 'aks-mentions-bot'
+  'azd-env-name': environmentName
 }
-
-@description('Admin username for AKS cluster nodes')
-param adminUsername string = 'azureuser'
-
-@description('SSH RSA public key file as a string for AKS cluster nodes')
-param sshRSAPublicKey string
 
 // Core resources
 var abbrs = loadJsonContent('abbreviations.json')
@@ -146,58 +146,44 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-// AKS Cluster
+// AKS Cluster - Automatic Mode
 resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
   name: aksClusterName
   location: location
   tags: union(tags, {
     'azd-service-name': 'aks-cluster'
   })
+  sku: {
+    name: 'Automatic'
+    tier: 'Standard'
+  }
   identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${managedIdentity.id}': {}
-    }
+    type: 'SystemAssigned'
   }
   properties: {
     dnsPrefix: 'aks-mentions-bot'
-    kubernetesVersion: '1.29.9'
     enableRBAC: true
     
-    // Node pools configuration
+    // Minimal agent pool configuration for AKS Automatic
     agentPoolProfiles: [
       {
         name: 'systempool'
-        count: 2
-        vmSize: 'Standard_B2s'
+        count: 1
+        vmSize: 'Standard_D4s_v3'
         osType: 'Linux'
         mode: 'System'
-        enableAutoScaling: true
-        minCount: 1
-        maxCount: 3
-        vnetSubnetID: '${vnet.id}/subnets/aks-subnet'
+        enableAutoScaling: false
         type: 'VirtualMachineScaleSets'
+        osDiskType: 'Ephemeral'
         osDiskSizeGB: 30
-        maxPods: 30
       }
     ]
     
-    // Linux profile for SSH access
-    linuxProfile: {
-      adminUsername: adminUsername
-      ssh: {
-        publicKeys: [
-          {
-            keyData: sshRSAPublicKey
-          }
-        ]
-      }
-    }
-    
-    // Network configuration
+    // Network configuration for AKS Automatic with CNI Overlay
     networkProfile: {
       networkPlugin: 'azure'
-      networkMode: 'transparent'
+      networkPluginMode: 'overlay'
+      podCidr: '10.244.0.0/16'
       serviceCidr: '10.1.0.0/16'
       dnsServiceIP: '10.1.0.10'
       loadBalancerSku: 'standard'
@@ -213,13 +199,23 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
       }
       azureKeyvaultSecretsProvider: {
         enabled: true
+        config: {
+          enableSecretRotation: 'true'
+          rotationPollInterval: '2m'
+        }
       }
     }
     
-    // Security profile
+    // Security profile for AKS Automatic
     securityProfile: {
       workloadIdentity: {
         enabled: true
+      }
+      defender: {
+        logAnalyticsWorkspaceResourceId: logAnalytics.id
+        securityMonitoring: {
+          enabled: true
+        }
       }
     }
     
@@ -228,10 +224,23 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
       enabled: true
     }
     
-    // Auto-upgrade configuration
+    // Auto-upgrade configuration for AKS Automatic
     autoUpgradeProfile: {
       upgradeChannel: 'stable'
       nodeOSUpgradeChannel: 'NodeImage'
+    }
+    
+    // Storage profile for AKS Automatic
+    storageProfile: {
+      diskCSIDriver: {
+        enabled: true
+      }
+      fileCSIDriver: {
+        enabled: true
+      }
+      snapshotController: {
+        enabled: true
+      }
     }
   }
 }
@@ -278,8 +287,31 @@ resource aksAcrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// User RBAC roles for AKS cluster access
+resource aksClusterAdminRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(currentUserObjectId)) {
+  scope: aksCluster
+  name: guid(subscription().id, currentUserObjectId, '0ab0b1a8-8aac-4efd-b8c2-3ee1fb270be8')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0ab0b1a8-8aac-4efd-b8c2-3ee1fb270be8') // Azure Kubernetes Service Cluster Admin Role
+    principalId: currentUserObjectId
+    principalType: 'User'
+  }
+}
+
+// User RBAC role for Key Vault secrets management
+resource keyVaultSecretsOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(currentUserObjectId)) {
+  scope: keyVault
+  name: guid(subscription().id, currentUserObjectId, 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7') // Key Vault Secrets Officer
+    principalId: currentUserObjectId
+    principalType: 'User'
+  }
+}
+
 // Outputs
 output AZURE_LOCATION string = location
+output AZURE_TENANT_ID string = subscription().tenantId
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.properties.loginServer
 output AZURE_STORAGE_ACCOUNT_NAME string = storageAccount.name
 output AZURE_KEY_VAULT_NAME string = keyVault.name
@@ -287,3 +319,4 @@ output AKS_CLUSTER_NAME string = aksCluster.name
 output AKS_CLUSTER_FQDN string = aksCluster.properties.fqdn
 output SERVICE_BOT_IDENTITY_PRINCIPAL_ID string = managedIdentity.properties.principalId
 output WORKLOAD_IDENTITY_CLIENT_ID string = managedIdentity.properties.clientId
+output RESOURCE_GROUP_ID string = resourceGroup().id

@@ -24,10 +24,14 @@ FROM alpine:latest
 # Install ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+WORKDIR /app
 
-# Copy the binary from builder stage
+# Copy the binary from builder stage and set proper permissions
 COPY --from=builder /app/main .
+RUN chmod +x main
+
+# Switch to non-root user (nobody user, UID 65534)
+USER 65534:65534
 
 # Expose port
 EXPOSE 8080

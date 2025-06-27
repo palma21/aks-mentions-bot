@@ -32,6 +32,13 @@ go.work
 # Environment files
 .env
 .env.local
+.azure/
+
+# Deployment files with actual values (keep templates only)
+k8s/deployment.local.yaml
+k8s/secrets.local.yaml
+k8s/deploy/
+infra/main.parameters.local.json
 
 # IDE files
 .vscode/
@@ -56,7 +63,5 @@ Thumbs.db
 .azure/
 
 # Kubernetes secrets with real values
+k8s/secrets.local.yaml
 k8s/my-secrets.yaml
-k8s/*secrets*.yaml
-!k8s/secrets.yaml
-!k8s/secrets.yaml

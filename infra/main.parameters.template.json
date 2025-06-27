@@ -2,17 +2,14 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "location": {
-      "value": "${AZURE_LOCATION=eastus2}"
-    },
     "environmentName": {
       "value": "${AZURE_ENV_NAME}"
     },
-    "resourceToken": {
-      "value": "${AZURE_RESOURCE_TOKEN}"
+    "location": {
+      "value": "${AZURE_LOCATION}"
     },
-    "currentUserObjectId": {
-      "value": "febf609b-90d8-4d63-bffb-c12ccb094696"
+    "principalId": {
+      "value": "${AZURE_PRINCIPAL_ID}"
     }
   }
 }

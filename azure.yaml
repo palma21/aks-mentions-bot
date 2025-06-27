@@ -3,36 +3,64 @@ metadata:
   template: aks-mentions-bot@0.0.1-beta
 
 services:
-  bot:
+  aks-cluster:
     project: .
-    language: go
     host: aks
+    docker:
+      path: ./Dockerfile
+      context: .
     k8s:
       namespace: aks-mentions-bot
-      deploymentPath: k8s
+      deploymentPath: k8s/deploy
 
 hooks:
-  preprovision:
-    posix:
-      shell: sh
-      run: |
-        echo "Preparing to provision Azure resources..."
-        # Generate SSH key pair if not exists
-        if [ ! -f ~/.ssh/id_rsa.pub ]; then
-          echo "Generating SSH key pair..."
-          ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -N ""
+  predeploy:
+    shell: sh
+    run: |
+      echo "Preparing deployment files..."
+      
+      # Check if local files exist
+      if [ ! -f "k8s/deployment.local.yaml" ] || [ ! -f "k8s/secrets.local.yaml" ]; then
+        echo "❌ Error: Local deployment files not found. Please run setup.sh first."
+        exit 1
+      fi
+      
+      # Create deploy directory and copy local files
+      mkdir -p k8s/deploy
+      cp k8s/deployment.local.yaml k8s/deploy/deployment.yaml
+      cp k8s/secrets.local.yaml k8s/deploy/secrets.yaml
+      echo "✅ Copied local files to k8s/deploy/"
+      
+      echo "Building and pushing container image to ACR..."
+      ACR_NAME=$(azd env get-values | grep AZURE_CONTAINER_REGISTRY_ENDPOINT | cut -d'=' -f2 | tr -d '"' | cut -d'.' -f1)
+      # Get next version number with more robust logic
+      echo "Checking existing tags in ACR..."
+      EXISTING_TAGS=$(az acr repository show-tags --name $ACR_NAME --repository aks-mentions-bot -o tsv 2>/dev/null || echo "")
+      echo "Existing tags: $EXISTING_TAGS"
+      
+      # Find the highest version number
+      HIGHEST_VERSION=0
+      for tag in $EXISTING_TAGS; do
+        if echo "$tag" | grep -q "^v[0-9]\+$"; then
+          VERSION_NUM=$(echo "$tag" | sed 's/v//')
+          if [ $VERSION_NUM -gt $HIGHEST_VERSION ]; then
+            HIGHEST_VERSION=$VERSION_NUM
+          fi
         fi
-        # Set SSH public key for AKS
-        azd env set AKS_SSH_PUBLIC_KEY "$(cat ~/.ssh/id_rsa.pub)"
-      continueOnError: false
-  postprovision:
-    posix:
-      shell: sh
-      run: |
-        echo "Azure resources provisioned successfully"
-        echo "Getting AKS credentials..."
-        az aks get-credentials --resource-group $AZURE_RESOURCE_GROUP --name $(azd env get-value AKS_CLUSTER_NAME) --overwrite-existing
-        echo "Setting up workload identity..."
-        ./scripts/setup-workload-identity.sh
-        echo "AKS cluster ready for deployment"
-      continueOnError: false
+      done
+      
+      NEXT_VERSION=$((HIGHEST_VERSION + 1))
+      IMAGE_TAG="v$NEXT_VERSION"
+      echo "Next version will be: $IMAGE_TAG"
+      
+      # Build and wait for completion
+      echo "Building image with tag: $IMAGE_TAG"
+      az acr build --registry $ACR_NAME --image aks-mentions-bot:$IMAGE_TAG .
+      
+      echo "Updating deployment with new image tag..."
+      sed -i "s|image: .*aks-mentions-bot.*|image: $ACR_NAME.azurecr.io/aks-mentions-bot:$IMAGE_TAG|" k8s/deploy/deployment.yaml
+      echo "Updated k8s/deploy/deployment.yaml to use $IMAGE_TAG"
+    continueOnError: false
+
+infra:
+  provider: bicep

@@ -72,10 +72,11 @@ func Load() (*Config, error) {
 		Keywords: getSliceEnv("KEYWORDS", []string{
 			"Azure Kubernetes Service",
 			"AKS",
-			"Azure Kubernetes Fleet Manager",
-			"KubeFleet",
-			"KAITO",
-			"Azure Container Service",
+			// Commented out for now to reduce noise and focus on core AKS mentions
+			// "Azure Kubernetes Fleet Manager",
+			// "KubeFleet", 
+			// "KAITO",
+			// "Azure Container Service",
 		}),
 
 		EnableContextFiltering:  getBoolEnv("ENABLE_CONTEXT_FILTERING", true),
