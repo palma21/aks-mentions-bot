@@ -52,9 +52,9 @@ func (s *Service) Start() error {
 
 	// Also add a more frequent check for critical issues (every 4 hours)
 	_, err = s.cron.AddFunc("0 0 */4 * * *", func() {
-		logrus.Info("Starting frequent monitoring check")
-		if err := s.monitoringService.RunMonitoring(); err != nil {
-			logrus.Errorf("Frequent monitoring check failed: %v", err)
+		logrus.Info("Starting urgent mentions check (4-hour frequency)")
+		if err := s.monitoringService.RunUrgentCheck(); err != nil {
+			logrus.Errorf("Urgent mentions check failed: %v", err)
 		}
 	})
 

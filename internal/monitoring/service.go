@@ -413,3 +413,167 @@ func (s *Service) GenerateTestReport(mentions []models.Mention) *models.Report {
 
 	return s.generateReport(mentions)
 }
+
+// RunUrgentCheck performs a focused check for urgent mentions (security issues, breaking changes, etc.)
+// This runs every 4 hours and only notifies about truly urgent content
+func (s *Service) RunUrgentCheck() error {
+	start := time.Now()
+	logrus.Info("Starting urgent mentions check")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	var allMentions []models.Mention
+	var wg sync.WaitGroup
+	mentionsChan := make(chan []models.Mention, len(s.sources))
+	errorsChan := make(chan error, len(s.sources))
+
+	// For urgent checks, only look at the last 4 hours
+	searchWindow := 4 * time.Hour
+	logrus.Info("Searching for urgent mentions in the last 4 hours")
+
+	// Fetch mentions from all sources concurrently
+	for _, source := range s.sources {
+		wg.Add(1)
+		go func(src sources.Source) {
+			defer wg.Done()
+
+			logrus.Infof("Checking %s for urgent mentions (4h window)", src.GetName())
+			mentions, err := src.FetchMentions(ctx, s.config.Keywords, searchWindow)
+
+			if err != nil {
+				logrus.Errorf("Error fetching urgent mentions from %s: %v", src.GetName(), err)
+				errorsChan <- err
+				return
+			}
+
+			mentionsChan <- mentions
+		}(source)
+	}
+
+	// Close channels when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(mentionsChan)
+		close(errorsChan)
+	}()
+
+	// Collect results
+	for mentions := range mentionsChan {
+		allMentions = append(allMentions, mentions...)
+	}
+
+	logrus.Infof("Found %d total mentions for urgent check", len(allMentions))
+
+	// Filter for urgent mentions only
+	urgentMentions := s.filterUrgentMentions(allMentions)
+
+	if len(urgentMentions) == 0 {
+		logrus.Info("No urgent mentions found")
+		return nil
+	}
+
+	logrus.Infof("Found %d urgent mentions requiring immediate notification", len(urgentMentions))
+
+	// Store urgent mentions
+	if err := s.storeMentions(urgentMentions); err != nil {
+		logrus.Errorf("Failed to store urgent mentions: %v", err)
+		return err
+	}
+
+	// Send urgent notification
+	if err := s.sendUrgentNotification(urgentMentions); err != nil {
+		logrus.Errorf("Failed to send urgent notification: %v", err)
+		return err
+	}
+
+	logrus.Infof("Urgent check completed in %v, sent %d urgent alerts", time.Since(start), len(urgentMentions))
+	return nil
+}
+
+// filterUrgentMentions identifies mentions that require immediate attention
+func (s *Service) filterUrgentMentions(mentions []models.Mention) []models.Mention {
+	var urgent []models.Mention
+
+	for _, mention := range mentions {
+		if s.isUrgentMention(mention) {
+			urgent = append(urgent, mention)
+		}
+	}
+
+	return urgent
+}
+
+// isUrgentMention determines if a mention requires immediate notification
+func (s *Service) isUrgentMention(mention models.Mention) bool {
+	content := strings.ToLower(mention.Content + " " + mention.Title)
+
+	// Security-related urgent keywords
+	securityKeywords := []string{
+		"security vulnerability", "cve", "exploit", "breach", "attack",
+		"malware", "ransomware", "phishing", "zero day", "critical security",
+		"security patch", "hotfix", "urgent update", "immediate action required",
+	}
+
+	// Breaking changes and service issues
+	breakingKeywords := []string{
+		"breaking change", "deprecated", "end of life", "eol", "sunset",
+		"service outage", "downtime", "incident", "degraded performance",
+		"api changes", "breaking api", "mandatory upgrade",
+	}
+
+	// High-impact announcements
+	highImpactKeywords := []string{
+		"microsoft announcement", "azure announcement", "urgent notice",
+		"action required", "immediate attention", "critical update",
+		"service retirement", "feature retirement",
+	}
+
+	// Check for urgent keywords
+	for _, keyword := range securityKeywords {
+		if strings.Contains(content, keyword) {
+			logrus.Infof("Urgent mention detected (security): %s in %s", keyword, mention.Title)
+			return true
+		}
+	}
+
+	for _, keyword := range breakingKeywords {
+		if strings.Contains(content, keyword) {
+			logrus.Infof("Urgent mention detected (breaking): %s in %s", keyword, mention.Title)
+			return true
+		}
+	}
+
+	for _, keyword := range highImpactKeywords {
+		if strings.Contains(content, keyword) {
+			logrus.Infof("Urgent mention detected (high-impact): %s in %s", keyword, mention.Title)
+			return true
+		}
+	}
+
+	return false
+}
+
+// sendUrgentNotification sends immediate notifications for urgent mentions
+func (s *Service) sendUrgentNotification(mentions []models.Mention) error {
+	if len(mentions) == 0 {
+		return nil
+	}
+
+	// Create urgent report
+	report := models.Report{
+		Title:      "🚨 URGENT AKS Mentions Alert",
+		Summary:    fmt.Sprintf("Found %d urgent AKS-related mentions requiring immediate attention", len(mentions)),
+		Mentions:   mentions,
+		GeneratedAt: time.Now(),
+		Period:     "4-hour urgent check",
+		TotalCount: len(mentions),
+	}
+
+	// Send notification
+	if err := s.notificationService.SendReport(report); err != nil {
+		return fmt.Errorf("failed to send urgent notification: %w", err)
+	}
+
+	return nil
+}

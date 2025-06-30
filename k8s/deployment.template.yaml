@@ -29,7 +29,7 @@ spec:
           value: "mentions"
         - name: AZURE_KEY_VAULT_URL
           value: "https://YOUR_KEYVAULT.vault.azure.net/"
-        - name: MONITORING_INTERVAL
+        - name: REPORT_SCHEDULE
           value: "weekly"
         - name: KEYWORDS
           value: "AKS,Azure Kubernetes Service"
