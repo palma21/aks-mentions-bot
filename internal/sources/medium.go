@@ -233,6 +233,11 @@ func (m *MediumSource) processRSSItem(item map[string]string, tag string, cutoff
 		author = "Medium Author"
 	}
 
+	// Apply Medium-specific relevance filtering
+	if !m.isRelevantMediumArticle(title, description) {
+		return nil
+	}
+
 	return &models.Mention{
 		ID:        fmt.Sprintf("medium_%s_%d", tag, pubDate.Unix()),
 		Source:    "medium",
@@ -244,6 +249,78 @@ func (m *MediumSource) processRSSItem(item map[string]string, tag string, cutoff
 		CreatedAt: pubDate,
 		Keywords:  []string{tag},
 	}
+}
+
+func (m *MediumSource) isRelevantMediumArticle(title, content string) bool {
+	combinedText := strings.ToLower(title + " " + content)
+
+	// Strong Azure Kubernetes Service indicators
+	strongIndicators := []string{
+		"azure kubernetes service", "azure kubernetes", "microsoft aks",
+		"aks cluster", "azure container service", "azurecr.io",
+		"az aks", "azure devops", "azure container registry",
+	}
+
+	// Azure context indicators
+	azureContext := []string{
+		"azure", "microsoft azure", "microsoft cloud", "azure portal",
+		"azure cli", "azure subscription", "azure resource",
+	}
+
+	// Kubernetes context indicators
+	kubernetesContext := []string{
+		"kubernetes", "k8s", "container", "cluster", "deployment",
+		"helm", "kubectl", "namespace", "pod", "service", "ingress",
+		"containerized", "orchestration", "microservices",
+	}
+
+	// Negative indicators for Medium (professional platform)
+	negativeIndicators := []string{
+		"trading", "cryptocurrency", "crypto", "bitcoin", "blockchain",
+		"makeup", "beauty", "cosmetics", "fashion", "lifestyle",
+		"gaming", "game", "forex", "stock trading", "nft",
+		"rifle", "gun", "weapon", "military",
+		"aws", "amazon", "eks", "gcp", "google cloud", "gke",
+	}
+
+	// Check for negative indicators first
+	for _, indicator := range negativeIndicators {
+		if strings.Contains(combinedText, indicator) {
+			return false
+		}
+	}
+
+	// Check for strong indicators - immediate acceptance
+	for _, indicator := range strongIndicators {
+		if strings.Contains(combinedText, indicator) {
+			return true
+		}
+	}
+
+	// For ambiguous "aks" case, require both Azure and Kubernetes context
+	if strings.Contains(combinedText, "aks") {
+		hasAzureContext := false
+		hasK8sContext := false
+
+		for _, indicator := range azureContext {
+			if strings.Contains(combinedText, indicator) {
+				hasAzureContext = true
+				break
+			}
+		}
+
+		for _, indicator := range kubernetesContext {
+			if strings.Contains(combinedText, indicator) {
+				hasK8sContext = true
+				break
+			}
+		}
+
+		// Medium articles should be technical, so require both contexts
+		return hasAzureContext && hasK8sContext
+	}
+
+	return false
 }
 
 func (m *MediumSource) searchViaGoogle(ctx context.Context, keyword string, since time.Duration) ([]models.Mention, error) {

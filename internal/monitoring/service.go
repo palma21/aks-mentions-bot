@@ -195,65 +195,102 @@ func (s *Service) filterByContext(mentions []models.Mention) []models.Mention {
 func (s *Service) isRelevantMention(mention models.Mention) bool {
 	content := strings.ToLower(mention.Content + " " + mention.Title)
 
-	// Primary AKS/Azure indicators - must have at least one
-	azureIndicators := []string{
-		"aks", "azure kubernetes service", "azure kubernetes", "azure container service",
-		"microsoft azure", "azurecr.io", "azure cli", "az aks", "azure devops",
-		"azure container registry", "azure container apps", "kaito", "kubefleet",
-		"azure kubernetes fleet", "azure kubernetes fleet manager",
+	// Strong Azure Kubernetes Service indicators - these are unambiguous
+	strongAzureIndicators := []string{
+		"azure kubernetes service", "azure kubernetes", "azure container service",
+		"microsoft azure kubernetes", "azurecr.io", "az aks", "aks cluster",
+		"azure devops", "azure container registry", "azure container apps", 
+		"kaito", "kubefleet", "azure kubernetes fleet", "microsoft aks",
 	}
 
-	// Secondary indicators that can boost relevance when combined with Azure
+	// Kubernetes context indicators that suggest technical content
 	kubernetesIndicators := []string{
 		"kubernetes", "k8s", "container", "cluster", "deployment", "helm",
 		"kubectl", "namespace", "pod", "service", "ingress", "nodepool",
+		"containerized", "orchestration", "microservices", "docker",
 	}
 
-	// Keywords that indicate it's NOT about AKS
+	// Azure context indicators
+	azureContextIndicators := []string{
+		"azure", "microsoft azure", "microsoft cloud", "azure portal",
+		"azure cli", "azure devops", "azure resource", "azure subscription",
+		"azure region", "resource group", "azure ad", "azure active directory",
+	}
+
+	// Keywords that indicate it's NOT about Azure Kubernetes Service
 	negativeIndicators := []string{
 		"rifle", "gun", "weapon", "firearm", "assault", "military", "bullet",
 		"ammunition", "shoot", "trigger", "barrel", "stock", "caliber",
-		"aws", "amazon", "eks", "gcp", "google", "gke", "openshift",
+		"aws", "amazon", "eks", "gcp", "google cloud", "gke", "openshift",
 		"rancher", "docker desktop", "minikube", "kind", "k3s",
+		"gaming", "game", "trading software", "trading bot", "forex",
+		"cryptocurrency", "crypto", "bitcoin", "blockchain", "nft",
+		"makeup", "beauty", "cosmetics", "fashion", "lifestyle",
 	}
 
-	// Check for negative indicators first
+	// Check for negative indicators first - immediate rejection
 	for _, indicator := range negativeIndicators {
 		if strings.Contains(content, indicator) {
 			return false
 		}
 	}
 
-	// Check for primary Azure indicators
-	azureScore := 0
-	for _, indicator := range azureIndicators {
+	// Check for strong Azure indicators - immediate acceptance
+	for _, indicator := range strongAzureIndicators {
 		if strings.Contains(content, indicator) {
-			azureScore++
+			return true
 		}
 	}
 
-	// If we have Azure indicators, it's relevant
-	if azureScore > 0 {
-		return true
+	// Now handle the ambiguous "aks" case with contextual analysis
+	hasAKS := strings.Contains(content, "aks")
+	if !hasAKS {
+		return false // No AKS mention at all
 	}
 
-	// If no Azure indicators, check if it's from our search terms and has Kubernetes context
-	// This handles cases where the title might be "AKS" but content doesn't mention Azure
-	if mention.Source == "reddit" || mention.Source == "stackoverflow" || mention.Source == "hackernews" {
-		// For these sources, require both our search terms AND Kubernetes context
-		hasSearchTerm := strings.Contains(content, "aks") || strings.Contains(content, "azure kubernetes")
-		hasK8sContext := false
-		for _, indicator := range kubernetesIndicators {
-			if strings.Contains(content, indicator) {
-				hasK8sContext = true
-				break
-			}
+	// AKS mentioned - now we need strong context to prove it's Azure Kubernetes Service
+	azureContextScore := 0
+	kubernetesContextScore := 0
+
+	// Count Azure context indicators
+	for _, indicator := range azureContextIndicators {
+		if strings.Contains(content, indicator) {
+			azureContextScore++
 		}
-		return hasSearchTerm && hasK8sContext
 	}
 
-	// For other sources (Medium, YouTube, etc.), be more restrictive
-	return false
+	// Count Kubernetes context indicators
+	for _, indicator := range kubernetesIndicators {
+		if strings.Contains(content, indicator) {
+			kubernetesContextScore++
+		}
+	}
+
+	// Different thresholds based on source reliability
+	switch mention.Source {
+	case "reddit", "stackoverflow", "hackernews":
+		// Technical platforms - require both Azure and Kubernetes context
+		return azureContextScore >= 1 && kubernetesContextScore >= 1
+		
+	case "medium", "linkedin":
+		// Professional platforms - require strong context but allow reasonable thresholds
+		return azureContextScore >= 1 && kubernetesContextScore >= 1
+		
+	case "youtube":
+		// High noise platform - require strong evidence but not unreasonable
+		// Either strong Azure context OR strong Kubernetes context with some Azure presence
+		return (azureContextScore >= 1 && kubernetesContextScore >= 2) || 
+		       (azureContextScore >= 2 && kubernetesContextScore >= 1)
+		
+	case "twitter":
+		// Mixed platform - require moderate context
+		return azureContextScore >= 1 && kubernetesContextScore >= 1
+		
+	default:
+		// Unknown sources - require reasonable evidence
+		// If we have explicit "aks" mention plus good context, accept it
+		return azureContextScore >= 1 && kubernetesContextScore >= 1
+	}
 }
 
 func (s *Service) analyzeSentiment(mentions []models.Mention) {
