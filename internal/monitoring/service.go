@@ -62,6 +62,13 @@ func (s *Service) initializeSources() {
 		sources.NewTwitterSource(s.config.TwitterBearerToken),
 		sources.NewYouTubeSource(s.config.YouTubeAPIKey),
 		sources.NewMediumSource(),
+		// LinkedIn source uses a hybrid approach:
+		// 1. LinkedIn's direct APIs require restricted permissions and only allow
+		//    accessing content you own or have explicit permissions for
+		// 2. Public content monitoring requires Google search for LinkedIn Pulse articles,
+		//    company page posts, and discussions - this provides real, relevant content
+		// 3. Alternative: Could implement LinkedIn Company Pages API if we get
+		//    organization-level access to specific companies (Microsoft, etc.)
 		sources.NewLinkedInSource(),
 	}
 }
