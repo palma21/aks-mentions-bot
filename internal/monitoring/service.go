@@ -560,14 +560,17 @@ func (s *Service) sendUrgentNotification(mentions []models.Mention) error {
 		return nil
 	}
 
-	// Create urgent report
-	report := models.Report{
-		Title:      "🚨 URGENT AKS Mentions Alert",
-		Summary:    fmt.Sprintf("Found %d urgent AKS-related mentions requiring immediate attention", len(mentions)),
-		Mentions:   mentions,
-		GeneratedAt: time.Now(),
-		Period:     "4-hour urgent check",
-		TotalCount: len(mentions),
+	// Create urgent report with correct structure
+	report := &models.Report{
+		GeneratedAt:   time.Now(),
+		Period:        "4-hour urgent check",
+		TotalMentions: len(mentions),
+		Mentions:      mentions,
+		Summary: map[string]interface{}{
+			"title":       "🚨 URGENT AKS Mentions Alert",
+			"description": fmt.Sprintf("Found %d urgent AKS-related mentions requiring immediate attention", len(mentions)),
+			"type":        "urgent",
+		},
 	}
 
 	// Send notification
