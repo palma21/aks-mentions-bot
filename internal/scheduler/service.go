@@ -9,9 +9,9 @@ import (
 
 // Service handles scheduling of monitoring tasks
 type Service struct {
-	config             *config.Config
-	monitoringService  *monitoring.Service
-	cron               *cron.Cron
+	config            *config.Config
+	monitoringService *monitoring.Service
+	cron              *cron.Cron
 }
 
 // NewService creates a new scheduler service
@@ -63,7 +63,7 @@ func (s *Service) Start() error {
 	}
 
 	s.cron.Start()
-	logrus.Infof("Scheduler started with %s schedule", s.config.ReportSchedule)
+	logrus.Infof("Scheduler started with %s schedule (plus urgent checks every 4 hours)", s.config.ReportSchedule)
 	return nil
 }
 

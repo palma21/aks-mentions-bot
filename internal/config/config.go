@@ -74,7 +74,7 @@ func Load() (*Config, error) {
 			"AKS",
 			// Commented out for now to reduce noise and focus on core AKS mentions
 			// "Azure Kubernetes Fleet Manager",
-			// "KubeFleet", 
+			// "KubeFleet",
 			// "KAITO",
 			// "Azure Container Service",
 		}),

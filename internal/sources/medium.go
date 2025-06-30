@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
-	
+
 	"github.com/azure/aks-mentions-bot/internal/models"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
@@ -25,7 +25,7 @@ type MediumSource struct {
 func NewMediumSource() *MediumSource {
 	return &MediumSource{
 		client: resty.New().
-			SetTimeout(30 * time.Second).
+			SetTimeout(30*time.Second).
 			SetHeader("User-Agent", "AKS-Mentions-Bot/1.0"),
 	}
 }
@@ -57,10 +57,10 @@ func (m *MediumSource) searchKeyword(ctx context.Context, keyword string, since 
 	// Use Medium's RSS feed for topic searches
 	// Medium provides RSS feeds for tags: https://medium.com/feed/tag/{tag}
 	var mentions []models.Mention
-	
+
 	// Try different tag variations for the keyword
 	tags := m.generateTags(keyword)
-	
+
 	for _, tag := range tags {
 		tagMentions, err := m.fetchFromRSS(ctx, tag, since)
 		if err != nil {
@@ -69,7 +69,7 @@ func (m *MediumSource) searchKeyword(ctx context.Context, keyword string, since 
 		}
 		mentions = append(mentions, tagMentions...)
 	}
-	
+
 	// Also try Medium's search via Google (public content)
 	searchMentions, err := m.searchViaGoogle(ctx, keyword, since)
 	if err != nil {
@@ -84,7 +84,7 @@ func (m *MediumSource) searchKeyword(ctx context.Context, keyword string, since 
 func (m *MediumSource) generateTags(keyword string) []string {
 	keyword = strings.ToLower(keyword)
 	tags := []string{}
-	
+
 	switch {
 	case strings.Contains(keyword, "aks"):
 		// Be specific to Azure Kubernetes Service
@@ -109,48 +109,48 @@ func (m *MediumSource) generateTags(keyword string) []string {
 			return tags // Return empty slice
 		}
 	}
-	
+
 	return tags
 }
 
 func (m *MediumSource) fetchFromRSS(ctx context.Context, tag string, since time.Duration) ([]models.Mention, error) {
 	url := fmt.Sprintf("https://medium.com/feed/tag/%s", tag)
-	
+
 	resp, err := m.client.R().
 		SetContext(ctx).
 		Get(url)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if resp.StatusCode() != 200 {
 		return nil, fmt.Errorf("RSS feed returned status %d", resp.StatusCode())
 	}
-	
+
 	return m.parseRSSFeed(resp.String(), tag, since)
 }
 
 func (m *MediumSource) parseRSSFeed(rssContent, tag string, since time.Duration) ([]models.Mention, error) {
 	var mentions []models.Mention
 	cutoff := time.Now().Add(-since)
-	
+
 	// Simple RSS parsing - in production, you'd use a proper XML parser
 	// This is a basic implementation that looks for item patterns
 	lines := strings.Split(rssContent, "\n")
-	
+
 	var currentItem map[string]string
 	inItem := false
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		if strings.Contains(line, "<item>") {
 			inItem = true
 			currentItem = make(map[string]string)
 			continue
 		}
-		
+
 		if strings.Contains(line, "</item>") && inItem {
 			inItem = false
 			if mention := m.processRSSItem(currentItem, tag, cutoff); mention != nil {
@@ -158,7 +158,7 @@ func (m *MediumSource) parseRSSFeed(rssContent, tag string, since time.Duration)
 			}
 			continue
 		}
-		
+
 		if inItem {
 			if strings.Contains(line, "<title>") {
 				currentItem["title"] = m.extractXMLContent(line, "title")
@@ -173,14 +173,14 @@ func (m *MediumSource) parseRSSFeed(rssContent, tag string, since time.Duration)
 			}
 		}
 	}
-	
+
 	return mentions, nil
 }
 
 func (m *MediumSource) extractXMLContent(line, tag string) string {
 	start := strings.Index(line, fmt.Sprintf("<%s>", tag))
 	end := strings.Index(line, fmt.Sprintf("</%s>", tag))
-	
+
 	if start != -1 && end != -1 {
 		start += len(tag) + 2
 		if start < end {
@@ -193,12 +193,12 @@ func (m *MediumSource) extractXMLContent(line, tag string) string {
 			return content
 		}
 	}
-	
+
 	// Handle self-closing tags like <link />
 	if strings.Contains(line, fmt.Sprintf("<%s>", tag)) && strings.Contains(line, "/>") {
 		return strings.TrimSpace(line)
 	}
-	
+
 	return ""
 }
 
@@ -207,12 +207,12 @@ func (m *MediumSource) processRSSItem(item map[string]string, tag string, cutoff
 	if !ok || title == "" {
 		return nil
 	}
-	
+
 	link, ok := item["link"]
 	if !ok || link == "" {
 		return nil
 	}
-	
+
 	// Parse publication date
 	pubDate := time.Now()
 	if dateStr, ok := item["pubDate"]; ok {
@@ -222,22 +222,22 @@ func (m *MediumSource) processRSSItem(item map[string]string, tag string, cutoff
 			pubDate = parsed
 		}
 	}
-	
+
 	// Check if article is recent enough
 	if pubDate.Before(cutoff) {
 		return nil
 	}
-	
+
 	description := item["description"]
 	if description == "" {
 		description = title
 	}
-	
+
 	author := item["creator"]
 	if author == "" {
 		author = "Medium Author"
 	}
-	
+
 	return &models.Mention{
 		ID:        fmt.Sprintf("medium_%s_%d", tag, pubDate.Unix()),
 		Source:    "medium",
@@ -255,14 +255,14 @@ func (m *MediumSource) searchViaGoogle(ctx context.Context, keyword string, sinc
 	// Search Medium via Google search (public approach)
 	// This is a fallback method for broader searches
 	query := fmt.Sprintf("site:medium.com %s", keyword)
-	
+
 	// Note: This is a simplified approach. In production, you might want to:
 	// 1. Use Google Custom Search API
 	// 2. Use a proper web scraping service
 	// 3. Implement more sophisticated parsing
-	
+
 	logrus.Infof("Medium: Would search Google for: %s (simplified implementation)", query)
-	
+
 	// For now, return empty results to avoid hitting Google without proper API
 	return []models.Mention{}, nil
 }
@@ -290,7 +290,7 @@ type LinkedInSource struct {
 func NewLinkedInSource() *LinkedInSource {
 	return &LinkedInSource{
 		client: resty.New().
-			SetTimeout(30 * time.Second).
+			SetTimeout(30*time.Second).
 			SetHeader("User-Agent", "AKS-Mentions-Bot/1.0"),
 	}
 }
@@ -323,9 +323,9 @@ func (l *LinkedInSource) searchKeyword(ctx context.Context, keyword string, sinc
 	// 1. Use Google search to find LinkedIn posts (limited but public)
 	// 2. Search for LinkedIn pulse articles (public content)
 	// 3. Note: Full LinkedIn API requires special partnership access
-	
+
 	var mentions []models.Mention
-	
+
 	// Search LinkedIn Pulse articles via Google (public approach)
 	pulseMentions, err := l.searchLinkedInPulse(ctx, keyword, since)
 	if err != nil {
@@ -333,7 +333,7 @@ func (l *LinkedInSource) searchKeyword(ctx context.Context, keyword string, sinc
 	} else {
 		mentions = append(mentions, pulseMentions...)
 	}
-	
+
 	// Search for public LinkedIn posts via Google
 	postMentions, err := l.searchPublicPosts(ctx, keyword, since)
 	if err != nil {
@@ -341,7 +341,7 @@ func (l *LinkedInSource) searchKeyword(ctx context.Context, keyword string, sinc
 	} else {
 		mentions = append(mentions, postMentions...)
 	}
-	
+
 	// If no results found via search, create a informational mention
 	if len(mentions) == 0 {
 		mentions = append(mentions, models.Mention{
@@ -363,25 +363,25 @@ func (l *LinkedInSource) searchKeyword(ctx context.Context, keyword string, sinc
 func (l *LinkedInSource) searchLinkedInPulse(ctx context.Context, keyword string, since time.Duration) ([]models.Mention, error) {
 	// LinkedIn Pulse articles are publicly accessible
 	// We can search for them using Google search or direct URL patterns
-	
+
 	logrus.Infof("LinkedIn: Searching Pulse articles for keyword: %s", keyword)
-	
+
 	// Try to search LinkedIn Pulse articles
 	return l.scrapeLinkedInContent(ctx, keyword, "pulse", since)
 }
 
 func (l *LinkedInSource) searchPublicPosts(ctx context.Context, keyword string, since time.Duration) ([]models.Mention, error) {
 	// Search for public LinkedIn posts that mention the keyword
-	
+
 	logrus.Infof("LinkedIn: Searching public posts for keyword: %s", keyword)
-	
+
 	// Try to search public LinkedIn posts
 	return l.scrapeLinkedInContent(ctx, keyword, "posts", since)
 }
 
 func (l *LinkedInSource) scrapeLinkedInContent(ctx context.Context, keyword string, contentType string, since time.Duration) ([]models.Mention, error) {
 	var mentions []models.Mention
-	
+
 	// LinkedIn search URL
 	var searchURL string
 	if contentType == "pulse" {
@@ -391,19 +391,19 @@ func (l *LinkedInSource) scrapeLinkedInContent(ctx context.Context, keyword stri
 		// Search for general content
 		searchURL = fmt.Sprintf("https://www.linkedin.com/search/results/content/?keywords=%s", url.QueryEscape(keyword))
 	}
-	
+
 	logrus.Infof("Scraping LinkedIn %s for keyword: %s", contentType, keyword)
-	
+
 	// Create HTTP client with proper headers to mimic a browser
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return mentions, fmt.Errorf("failed to create LinkedIn request: %w", err)
 	}
-	
+
 	// Set browser-like headers
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
@@ -414,7 +414,7 @@ func (l *LinkedInSource) scrapeLinkedInContent(ctx context.Context, keyword stri
 	req.Header.Set("Sec-Fetch-Dest", "document")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	req.Header.Set("Sec-Fetch-Site", "none")
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		logrus.Warnf("Failed to fetch LinkedIn search results for keyword '%s': %v", keyword, err)
@@ -433,14 +433,14 @@ func (l *LinkedInSource) scrapeLinkedInContent(ctx context.Context, keyword stri
 		return []models.Mention{mention}, nil
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		logrus.Warnf("LinkedIn returned status %d for keyword '%s'", resp.StatusCode, keyword)
 		// Return a placeholder mention indicating the search was attempted
 		mention := models.Mention{
 			ID:        fmt.Sprintf("linkedin_%s_%s_%d", contentType, strings.ReplaceAll(keyword, " ", "_"), time.Now().Unix()),
 			Source:    "linkedin",
-			Platform:  "LinkedIn", 
+			Platform:  "LinkedIn",
 			Title:     fmt.Sprintf("LinkedIn %s search: %s (Status: %d)", contentType, keyword, resp.StatusCode),
 			Content:   fmt.Sprintf("Searched LinkedIn %s for '%s' but received status %d. This may indicate rate limiting or access restrictions. Consider manual review.", contentType, keyword, resp.StatusCode),
 			Author:    "LinkedIn Search Bot",
@@ -450,22 +450,22 @@ func (l *LinkedInSource) scrapeLinkedInContent(ctx context.Context, keyword stri
 		}
 		return []models.Mention{mention}, nil
 	}
-	
+
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return mentions, fmt.Errorf("failed to read LinkedIn response: %w", err)
 	}
-	
+
 	// Parse HTML content
 	doc, err := html.Parse(strings.NewReader(string(body)))
 	if err != nil {
 		return mentions, fmt.Errorf("failed to parse LinkedIn HTML: %w", err)
 	}
-	
+
 	// Extract posts from LinkedIn's HTML structure
 	posts := l.extractLinkedInPosts(doc, keyword, contentType, since)
-	
+
 	if len(posts) == 0 {
 		logrus.Infof("No LinkedIn %s found for keyword '%s', returning search indicator", contentType, keyword)
 		// Return a search indicator if no posts were found
@@ -484,14 +484,14 @@ func (l *LinkedInSource) scrapeLinkedInContent(ctx context.Context, keyword stri
 	} else {
 		mentions = append(mentions, posts...)
 	}
-	
+
 	logrus.Infof("Found %d LinkedIn %s for keyword '%s'", len(mentions), contentType, keyword)
 	return mentions, nil
 }
 
 func (l *LinkedInSource) extractLinkedInPosts(n *html.Node, keyword, contentType string, since time.Duration) []models.Mention {
 	var mentions []models.Mention
-	
+
 	// LinkedIn's structure changes frequently, so we'll look for common patterns
 	if n.Type == html.ElementNode {
 		// Look for potential post containers
@@ -505,18 +505,18 @@ func (l *LinkedInSource) extractLinkedInPosts(n *html.Node, keyword, contentType
 			}
 		}
 	}
-	
+
 	// Recursively search child nodes
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		childMentions := l.extractLinkedInPosts(c, keyword, contentType, since)
 		mentions = append(mentions, childMentions...)
-		
+
 		// Limit the number of mentions to prevent huge payloads
 		if len(mentions) >= 20 {
 			break
 		}
 	}
-	
+
 	return mentions
 }
 
@@ -542,25 +542,25 @@ func (l *LinkedInSource) hasRelevantClass(n *html.Node) bool {
 func (l *LinkedInSource) extractPostFromNode(n *html.Node, keyword, contentType string) *models.Mention {
 	// Extract text content from the node
 	text := l.extractTextContent(n)
-	
+
 	// Check if the text contains our keyword (case-insensitive)
 	if !strings.Contains(strings.ToLower(text), strings.ToLower(keyword)) {
 		return nil
 	}
-	
+
 	// Look for a link
 	postURL := l.extractLinkFromNode(n)
 	if postURL == "" {
 		// If no specific post link found, use the search URL
 		postURL = fmt.Sprintf("https://www.linkedin.com/search/results/content/?keywords=%s", url.QueryEscape(keyword))
 	}
-	
+
 	// Try to extract author information
 	author := l.extractAuthorFromNode(n)
 	if author == "" {
 		author = "LinkedIn User"
 	}
-	
+
 	// Create a mention
 	mention := &models.Mention{
 		ID:        fmt.Sprintf("linkedin_%s_%s_%d", contentType, strings.ReplaceAll(keyword, " ", "_"), time.Now().Unix()),
@@ -573,7 +573,7 @@ func (l *LinkedInSource) extractPostFromNode(n *html.Node, keyword, contentType 
 		CreatedAt: time.Now().UTC(),
 		Keywords:  []string{keyword},
 	}
-	
+
 	return mention
 }
 
@@ -581,13 +581,13 @@ func (l *LinkedInSource) extractTextContent(n *html.Node) string {
 	if n.Type == html.TextNode {
 		return strings.TrimSpace(n.Data)
 	}
-	
+
 	var text strings.Builder
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		text.WriteString(l.extractTextContent(c))
 		text.WriteString(" ")
 	}
-	
+
 	return strings.TrimSpace(text.String())
 }
 
@@ -604,14 +604,14 @@ func (l *LinkedInSource) extractLinkFromNode(n *html.Node) string {
 			}
 		}
 	}
-	
+
 	// Recursively search for links in child nodes
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if link := l.extractLinkFromNode(c); link != "" {
 			return link
 		}
 	}
-	
+
 	return ""
 }
 
@@ -633,14 +633,14 @@ func (l *LinkedInSource) extractAuthorFromNode(n *html.Node) string {
 			}
 		}
 	}
-	
+
 	// Recursively search for author information
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if author := l.extractAuthorFromNode(c); author != "" {
 			return author
 		}
 	}
-	
+
 	return ""
 }
 
@@ -648,13 +648,13 @@ func (l *LinkedInSource) truncateText(text string, maxLength int) string {
 	if len(text) <= maxLength {
 		return text
 	}
-	
+
 	// Find the last space before the limit
 	truncated := text[:maxLength]
 	if lastSpace := strings.LastIndex(truncated, " "); lastSpace > 0 {
 		truncated = truncated[:lastSpace]
 	}
-	
+
 	return truncated + "..."
 }
 
