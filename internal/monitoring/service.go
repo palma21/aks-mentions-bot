@@ -540,6 +540,12 @@ func (s *Service) filterUrgentMentions(mentions []models.Mention) []models.Menti
 	var urgent []models.Mention
 
 	for _, mention := range mentions {
+		// First check if it's relevant to AKS/Azure (context filtering)
+		if !s.isRelevantMention(mention) {
+			continue
+		}
+		
+		// Then check if it contains urgent keywords
 		if s.isUrgentMention(mention) {
 			urgent = append(urgent, mention)
 		}

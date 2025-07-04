@@ -173,3 +173,76 @@ func TestSourceSpecificThresholds(t *testing.T) {
 		})
 	}
 }
+
+func TestUrgentFilteringWithContext(t *testing.T) {
+	cfg := &config.Config{
+		Keywords: []string{"aks", "azure kubernetes service"},
+	}
+	service := &Service{config: cfg}
+
+	testCases := []struct {
+		name           string
+		mention        models.Mention
+		expectedUrgent bool
+		reason         string
+	}{
+		{
+			name: "True urgent AKS security issue - should alert",
+			mention: models.Mention{
+				Source:  "hackernews",
+				Title:   "Critical security vulnerability in AKS cluster management",
+				Content: "Azure Kubernetes Service has a severe security breach affecting all clusters",
+			},
+			expectedUrgent: true,
+			reason:         "Has both AKS context AND urgent security keywords",
+		},
+		{
+			name: "False positive - software cracking with 'attack' - should NOT alert",
+			mention: models.Mention{
+				Source:  "hackernews", 
+				Title:   "Ask HN: How do I prevent execs from obsessing over copy-protection?",
+				Content: "The issue is that our present architecture means the attacker already has root and we cannot protect any key. While I want to encourage the org to eventually move to a client-server architecture we could protect, the need to provide the remote copies means all we can do is create puzzle boxes via security by obscurity",
+			},
+			expectedUrgent: false,
+			reason:         "Contains 'attack' but no AKS/Azure context - should be filtered out",
+		},
+		{
+			name: "Gaming AKS with security terms - should NOT alert",
+			mention: models.Mention{
+				Source:  "youtube",
+				Title:   "AKS rifle security features and attack strategies",
+				Content: "Best security attachments for AKS-74 against enemy attack",
+			},
+			expectedUrgent: false,
+			reason:         "Gaming content should be filtered out despite urgent keywords",
+		},
+		{
+			name: "Real AKS breaking change - should alert",
+			mention: models.Mention{
+				Source:  "medium",
+				Title:   "Breaking change in Azure Kubernetes Service API",
+				Content: "AKS users must upgrade immediately due to deprecated endpoints in Azure",
+			},
+			expectedUrgent: true,
+			reason:         "Real AKS content with breaking change keywords",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test both context filtering and urgent filtering
+			isRelevant := service.isRelevantMention(tc.mention)
+			isUrgent := service.isUrgentMention(tc.mention)
+			
+			// Simulate the filterUrgentMentions logic
+			wouldAlert := isRelevant && isUrgent
+			
+			if wouldAlert != tc.expectedUrgent {
+				t.Errorf("Test '%s' failed: expected urgent alert %v, got %v. Reason: %s", 
+					tc.name, tc.expectedUrgent, wouldAlert, tc.reason)
+				t.Errorf("Details: isRelevant=%v, isUrgent=%v, Source: %s, Title: %s", 
+					isRelevant, isUrgent, tc.mention.Source, tc.mention.Title)
+			}
+		})
+	}
+}
